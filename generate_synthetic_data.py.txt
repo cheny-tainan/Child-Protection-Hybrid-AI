@@ -1,0 +1,45 @@
+import pandas as pd
+import numpy as np
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Total number of simulated samples (N cases)
+N = 48000
+
+# 1. Generate Features - Corresponding to key variables mentioned in Section 3.4
+# Child's age (0-18 years)
+child_age = np.random.randint(0, 19, N)
+# Number of substantiated reports within the past 3 years
+prior_reports = np.random.poisson(0.8, N)
+# Number of placements within the past 12 months
+recent_placements = np.random.poisson(0.3, N)
+# Caregiver criminal justice involvement (Binary: 0 or 1)
+caregiver_justice = np.random.binomial(1, 0.15, N)
+# Service intervention intensity within the past 6 months (Continuous score)
+service_intensity = np.random.exponential(1.5, N)
+
+# 2. Generate Target Label: Recidivism
+# Calculate underlying risk logits based on features
+logits = -3.5 + (prior_reports * 0.9) + (recent_placements * 1.5) + (caregiver_justice * 1.2) - (service_intensity * 0.1)
+probs = 1 / (1 + np.exp(-logits))
+
+# Set threshold to generate a highly imbalanced recidivism rate of approximately 1:20 (5%)
+threshold = np.percentile(probs, 95)
+y_target = (probs > threshold).astype(int)
+
+# 3. Create DataFrame and export to CSV
+df = pd.DataFrame({
+    'child_age': child_age,
+    'prior_substantiated_reports_3y': prior_reports,
+    'recent_placement_count_12m': recent_placements,
+    'caregiver_justice_involvement': caregiver_justice,
+    'service_intensity_6m': service_intensity,
+    'recidivism_within_horizon': y_target
+})
+
+# Save as CSV for the training script
+df.to_csv('synthetic_child_welfare_data.csv', index=False)
+
+print(f"Synthetic dataset generated with total samples: {N}")
+print(f"Recidivism class imbalance ratio: {y_target.mean():.2%} (Positive class)")
