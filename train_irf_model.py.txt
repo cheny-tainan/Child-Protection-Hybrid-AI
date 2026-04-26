@@ -1,0 +1,62 @@
+import pandas as pd
+import optuna
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import roc_auc_score, f1_score, classification_report
+
+# 1. Load synthetic dataset
+df = pd.read_csv('synthetic_child_welfare_data.csv')
+X = df.drop('recidivism_within_horizon', axis=1)
+y = df['recidivism_within_horizon']
+
+# Standard chronological data splitting (Training 70%, Testing 30%)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+# 2. Define Optuna objective function for Bayesian Optimization (TPE Algorithm)
+def objective(trial):
+    # Outer-loop hyperparameter search space (Corresponding to Section 2.3.2)
+    n_estimators = trial.suggest_int('n_estimators', 50, 200)
+    max_depth = trial.suggest_int('max_depth', 3, 12)
+    min_samples_split = trial.suggest_int('min_samples_split', 2, 10)
+
+    # Build Improved Random Forest (I-RF)
+    # class_weight='balanced' implements the cost-sensitive impurity splitting weight
+    rf = RandomForestClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        min_samples_split=min_samples_split,
+        class_weight='balanced', 
+        random_state=42,
+        n_jobs=-1
+    )
+
+    # Calculate AUROC using 5-fold cross-validation as the optimization metric
+    score = cross_val_score(rf, X_train, y_train, cv=5, scoring='roc_auc').mean()
+    return score
+
+if __name__ == "__main__":
+    print("Starting Bayesian optimization hyperparameter search (TPE)...")
+    
+    # Create Optuna study using TPE Sampler
+    study = optuna.create_study(direction='maximize', sampler=optuna.samplers.TPESampler(seed=42))
+    study.optimize(objective, n_trials=15) # Execute only 15 trials for demonstration purposes
+    
+    print("\nBest hyperparameter combination:", study.best_params)
+
+    # 3. Train the final I-RF model using the best hyperparameters
+    best_rf = RandomForestClassifier(
+        **study.best_params,
+        class_weight='balanced', # Cost-sensitive learning
+        random_state=42
+    )
+    best_rf.fit(X_train, y_train)
+
+    # 4. Model prediction and performance evaluation (Corresponding to Table 1)
+    y_pred = best_rf.predict(X_test)
+    y_prob = best_rf.predict_proba(X_test)[:, 1]
+
+    print("\n--- Test Set Performance ---")
+    print(f"AUROC: {roc_auc_score(y_test, y_prob):.4f}")
+    print(f"F1-Score (Positive Class): {f1_score(y_test, y_pred):.4f}")
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
